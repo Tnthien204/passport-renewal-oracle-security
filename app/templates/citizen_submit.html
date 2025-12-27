@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-2">
+  <h1 class="text-2xl font-bold tracking-tight">Submit Renewal</h1>
+  <p class="mt-1 text-sm text-slate-600">
+    Nộp hồ sơ gia hạn. DB trigger sẽ <b>ép STATUS='SUBMITTED'</b> và tự gán <b>XT_UNIT</b>
+    theo <b>RESIDENT_PROFILE.DISTRICT_CODE</b> (web không được tự set).
+  </p>
+</div>
+
+<div class="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
+  <form method="post" action="/citizen/submit" class="grid gap-4 md:grid-cols-2">
+    <div class="md:col-span-2">
+      <label class="text-sm font-medium">Full name</label>
+      <input name="full_name" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+             placeholder="Nguyễn Văn A" required>
+    </div>
+
+    <div>
+      <label class="text-sm font-medium">CMND</label>
+      <input name="cmnd" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+             placeholder="Must match login" required>
+      <div class="mt-1 text-xs text-slate-500">Nếu khác CMND đăng nhập sẽ bị chặn.</div>
+    </div>
+
+    <div>
+      <label class="text-sm font-medium">Gender</label>
+      <select name="gender" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20" required>
+        <option value="M">M</option>
+        <option value="F">F</option>
+        <option value="O">O</option>
+      </select>
+    </div>
+
+    <div class="md:col-span-2">
+      <label class="text-sm font-medium">Permanent address</label>
+      <input name="permanent_address" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+             placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" required>
+    </div>
+
+    <div>
+      <label class="text-sm font-medium">Passport no</label>
+      <input name="passport_no" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+             placeholder="P1234567" required>
+    </div>
+
+    <div>
+      <label class="text-sm font-medium">Phone</label>
+      <input name="phone" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+             placeholder="Optional">
+    </div>
+
+    <div class="md:col-span-2">
+      <label class="text-sm font-medium">Email</label>
+      <input name="email" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+             placeholder="Optional">
+    </div>
+
+    <div class="md:col-span-2 flex flex-col-reverse gap-3 md:flex-row md:justify-end">
+      <a href="/citizen" class="inline-flex justify-center rounded-xl border px-4 py-3 hover:bg-slate-50">Cancel</a>
+      <button class="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-3 text-white hover:opacity-95">
+        Submit
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

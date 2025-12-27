@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-2">
+  <h1 class="text-2xl font-bold tracking-tight">Đơn cần xử lý</h1>
+</div>
+
+<div class="mt-6 overflow-hidden rounded-2xl border bg-white shadow-sm">
+  <div class="border-b p-4 flex items-center justify-between">
+    <div class="font-semibold">Applications</div>
+    <div class="text-xs text-slate-500">Total: <b class="text-slate-700">{{ rows|length }}</b></div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">APP_NO</th>
+          <th class="px-4 py-3 text-left">CMND</th>
+          <th class="px-4 py-3 text-left">FULL_NAME</th>
+          <th class="px-4 py-3 text-left">XT_RESULT</th>
+          <th class="px-4 py-3 text-left">XT_AT</th>
+          <th class="px-4 py-3 text-left">XT_NOTE</th>
+          <th class="px-4 py-3 text-left">PASSPORT</th>
+          <th class="px-4 py-3 text-left">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y">
+        {% for r in rows %}
+        <tr class="align-top hover:bg-slate-50">
+          <td class="px-4 py-3 font-mono text-xs">{{ r[0] }}</td>
+          <td class="px-4 py-3">{{ r[1] }}</td>
+          <td class="px-4 py-3">{{ r[2] }}</td>
+          <td class="px-4 py-3">{{ result_badge(r[3]) }}</td>
+          <td class="px-4 py-3 text-slate-700">{{ r[4] or "—" }}</td>
+          <td class="px-4 py-3 text-slate-600">{{ r[5] or "—" }}</td>
+          <td class="px-4 py-3">{{ r[6] }}</td>
+          <td class="px-4 py-3 w-[320px]">
+            <form method="post" action="/staff/xd/decide" class="grid gap-2">
+              <input type="hidden" name="app_no" value="{{ r[0] }}">
+
+              <div class="grid grid-cols-2 gap-2">
+                <select name="decision" class="rounded-xl border p-2 outline-none focus:ring-2 focus:ring-slate-900/20">
+                  <option value="APPROVE">APPROVE</option>
+                  <option value="REJECT">REJECT</option>
+                </select>
+                <button class="rounded-xl bg-slate-900 px-3 py-2 text-white hover:opacity-95">
+                  Update
+                </button>
+              </div>
+
+              <input name="note" class="rounded-xl border p-2 outline-none focus:ring-2 focus:ring-slate-900/20"
+                     placeholder="Note (optional)">
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+
+        {% if rows|length == 0 %}
+        <tr>
+          <td class="px-6 py-10 text-center text-slate-500" colspan="8">
+            Không có hồ sơ XT_DONE trong phạm vi VPD.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

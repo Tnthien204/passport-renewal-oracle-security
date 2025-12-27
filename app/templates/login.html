@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block content %}
+{% set tab = request.query_params.get('tab') %}
+
+<div class="mt-6 max-w-3xl mx-auto">
+  <!-- Header -->
+  <div class="mb-5">
+    <h1 class="text-2xl font-bold tracking-tight">Đăng nhập hệ thống</h1>
+    <p class="mt-1 text-sm text-slate-600">
+      {% if tab in ['citizen', 'staff'] %}
+        Nhập tài khoản để tiếp tục
+      {% else %}
+        Chọn vai trò để bắt đầu (Citizen / Staff)
+      {% endif %}
+    </p>
+  </div>
+
+  <!-- Error -->
+  {% if request.query_params.get('err') %}
+    <div class="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700">
+      {{ request.query_params.get('err') }}
+    </div>
+  {% endif %}
+
+  {# =========================
+     CHOOSE ROLE (no forms)
+     ========================= #}
+  {% if tab not in ['citizen', 'staff'] %}
+    <div class="grid gap-4 sm:grid-cols-2">
+      <a href="/login?tab=citizen"
+         class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-xs text-slate-500">Option</div>
+            <div class="mt-1 text-xl font-semibold tracking-tight">Citizen Login</div>
+            <div class="mt-2 text-sm text-slate-600">
+              Dành cho người dân nộp hồ sơ gia hạn & theo dõi trạng thái.
+            </div>
+          </div>
+          <div class="h-11 w-11 rounded-2xl bg-slate-900 text-white grid place-items-center font-black group-hover:opacity-95">
+            C
+          </div>
+        </div>
+
+        <div class="mt-5 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+          Continue →
+        </div>
+      </a>
+
+      <a href="/login?tab=staff"
+         class="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:shadow-md transition">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-xs text-slate-500">Option</div>
+            <div class="mt-1 text-xl font-semibold tracking-tight">Staff Login</div>
+            <div class="mt-2 text-sm text-slate-600">
+              Dành cho XT / XD / LT / GS xử lý nghiệp vụ theo phân quyền.
+            </div>
+          </div>
+          <div class="h-11 w-11 rounded-2xl bg-indigo-600 text-white grid place-items-center font-black group-hover:opacity-95">
+            S
+          </div>
+        </div>
+
+        <div class="mt-5 inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">
+          Continue →
+        </div>
+      </a>
+    </div>
+
+    <div class="mt-4 rounded-3xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">
+      Tip: Bạn cũng có thể bấm trực tiếp <b>Citizen</b> hoặc <b>Staff</b> trên thanh menu để đi thẳng vào form tương ứng.
+    </div>
+
+  {% else %}
+  {# =========================
+     SHOW FORMS (tab=citizen/staff)
+     ========================= #}
+
+    <div class="rounded-2xl border bg-white shadow-sm overflow-hidden">
+      <!-- Tabs -->
+      <div class="flex items-center justify-between border-b bg-slate-50 px-4 py-3">
+        <div class="inline-flex rounded-xl bg-white p-1 ring-1 ring-slate-200">
+          <a href="/login?tab=citizen"
+             class="px-4 py-2 text-sm rounded-lg transition
+             {% if tab == 'citizen' %}bg-slate-900 text-white{% else %}text-slate-700 hover:bg-slate-100{% endif %}">
+            Citizen
+          </a>
+          <a href="/login?tab=staff"
+             class="px-4 py-2 text-sm rounded-lg transition
+             {% if tab == 'staff' %}bg-indigo-600 text-white{% else %}text-slate-700 hover:bg-slate-100{% endif %}">
+            Staff
+          </a>
+        </div>
+
+        <a href="/login"
+           class="text-xs text-slate-500 hover:text-slate-900 transition">
+          ← Back to role picker
+        </a>
+      </div>
+
+      <!-- Body -->
+      <div class="p-6">
+        <!-- CITIZEN PANEL -->
+        {% if tab == 'citizen' %}
+          <form method="post" action="/login/citizen" class="space-y-4">
+            <div>
+              <label class="text-sm font-medium">Username</label>
+              <input name="username"
+                     class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20"
+                     placeholder="Vui lòng nhập email" required>
+            </div>
+
+            <div>
+              <label class="text-sm font-medium">Password</label>
+              <div class="relative mt-1">
+                <input id="citizen_pass" name="password" type="password"
+                       class="w-full rounded-xl border p-3 pr-12 outline-none focus:ring-2 focus:ring-slate-900/20"
+                       placeholder="••••••••" required>
+
+                <button type="button"
+                        class="absolute inset-y-0 right-0 px-3 flex items-center text-slate-500 hover:text-slate-900"
+                        aria-label="Toggle password visibility"
+                        data-toggle="password"
+                        data-target="citizen_pass">
+                  <svg data-eye="show" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                       class="h-5 w-5">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  <svg data-eye="hide" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                       class="h-5 w-5 hidden">
+                    <path d="M3 3l18 18"/>
+                    <path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58"/>
+                    <path d="M9.88 4.24A10.94 10.94 0 0 1 12 4c6.5 0 10 8 10 8a18.3 18.3 0 0 1-2.9 4.2"/>
+                    <path d="M6.1 6.1C3.5 8.2 2 12 2 12s3.5 8 10 8c1.1 0 2.1-.2 3-.5"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <button class="w-full rounded-xl bg-slate-900 p-3 text-white hover:opacity-95">
+              Login
+            </button>
+
+            <div class="text-sm text-slate-600">
+              Chưa có tài khoản?
+              <a class="font-medium text-indigo-600 hover:underline" href="/register">Đăng ký</a>
+            </div>
+          </form>
+        {% endif %}
+
+        <!-- STAFF PANEL -->
+        {% if tab == 'staff' %}
+          <form method="post" action="/login/staff" class="space-y-4">
+            <div>
+              <label class="text-sm font-medium">Username</label>
+              <input name="db_user"
+                     class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-indigo-600/20"
+                     placeholder="Nhập tài khoản hệ thống" required>
+            </div>
+
+            <div>
+              <label class="text-sm font-medium">Password</label>
+              <div class="relative mt-1">
+                <input id="staff_pass" name="db_pass" type="password"
+                       class="w-full rounded-xl border p-3 pr-12 outline-none focus:ring-2 focus:ring-indigo-600/20"
+                       placeholder="••••••••" required>
+
+                <button type="button"
+                        class="absolute inset-y-0 right-0 px-3 flex items-center text-slate-500 hover:text-slate-900"
+                        aria-label="Toggle password visibility"
+                        data-toggle="password"
+                        data-target="staff_pass">
+                  <svg data-eye="show" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                       class="h-5 w-5">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                  <svg data-eye="hide" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                       class="h-5 w-5 hidden">
+                    <path d="M3 3l18 18"/>
+                    <path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58"/>
+                    <path d="M9.88 4.24A10.94 10.94 0 0 1 12 4c6.5 0 10 8 10 8a18.3 18.3 0 0 1-2.9 4.2"/>
+                    <path d="M6.1 6.1C3.5 8.2 2 12 2 12s3.5 8 10 8c1.1 0 2.1-.2 3-.5"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <button class="w-full rounded-xl bg-indigo-600 p-3 text-white hover:opacity-95">
+              Login
+            </button>
+
+            <div class="text-xs text-slate-500 leading-relaxed">
+              * Quyền xem/đổi dữ liệu phụ thuộc VPD/OLS trong Oracle.
+            </div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <script>
+      // ---- Eye toggle (password) ----
+      document.querySelectorAll('button[data-toggle="password"]').forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const targetId = btn.getAttribute("data-target");
+          const input = document.getElementById(targetId);
+          if (!input) return;
+
+          input.type = (input.type === "password") ? "text" : "password";
+
+          const eyeShow = btn.querySelector('svg[data-eye="show"]');
+          const eyeHide = btn.querySelector('svg[data-eye="hide"]');
+          const nowVisible = (input.type === "text");
+          if (eyeShow && eyeHide) {
+            eyeShow.classList.toggle("hidden", nowVisible);
+            eyeHide.classList.toggle("hidden", !nowVisible);
+          }
+        });
+      });
+    </script>
+
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-2 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">XT Đối chiếu</h1>
+    <p class="mt-1 text-sm text-slate-600">
+      So sánh dữ liệu người dân khai với dữ liệu gốc Resident/Passport.
+    </p>
+    <a class="mt-2 inline-flex items-center text-sm font-medium text-indigo-600 hover:underline" href="/staff/xt">
+      ← Back 
+    </a>
+  </div>
+
+  <div class="rounded-2xl border bg-white px-4 py-3 shadow-sm text-sm">
+    <div class="text-slate-600">APP_NO</div>
+    <div class="font-mono text-xs">{{ app[0] }}</div>
+  </div>
+</div>
+
+<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+  <!-- Application -->
+  <div class="rounded-2xl border bg-white p-5 shadow-sm">
+    <div class="flex items-center justify-between">
+      <h2 class="font-semibold">Đơn người dân khai</h2>
+      {{ status_badge(app[7]) }}
+    </div>
+
+    <div class="mt-4 space-y-2 text-sm">
+      <div><span class="text-slate-500">CMND:</span> <b>{{ app[1] }}</b></div>
+
+      <div class="rounded-xl p-2 {% if diffs.full_name %}bg-red-50 border border-red-200{% else %}bg-slate-50{% endif %}">
+        <span class="text-slate-500">Họ tên:</span> <b class="{% if diffs.full_name %}text-red-700{% endif %}">{{ app[2] }}</b>
+      </div>
+
+      <div class="rounded-xl p-2 {% if diffs.gender %}bg-red-50 border border-red-200{% else %}bg-slate-50{% endif %}">
+        <span class="text-slate-500">Giới tính:</span> <b class="{% if diffs.gender %}text-red-700{% endif %}">{{ app[3] }}</b>
+      </div>
+
+      <div class="rounded-xl p-2 {% if diffs.address %}bg-red-50 border border-red-200{% else %}bg-slate-50{% endif %}">
+        <span class="text-slate-500">Địa chỉ:</span> <b class="{% if diffs.address %}text-red-700{% endif %}">{{ app[4] }}</b>
+      </div>
+
+      <div class="rounded-xl p-2 {% if diffs.passport %}bg-red-50 border border-red-200{% else %}bg-slate-50{% endif %}">
+        <span class="text-slate-500">Passport:</span> <b class="{% if diffs.passport %}text-red-700{% endif %}">{{ app[5] }}</b>
+      </div>
+
+      <div class="text-slate-600 text-xs pt-2 border-t">
+        Submitted: <b class="text-slate-800">{{ app[6] }}</b>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resident -->
+  <div class="rounded-2xl border bg-white p-5 shadow-sm">
+    <h2 class="font-semibold">Resident Profile (gốc)</h2>
+    {% if resident %}
+      <div class="mt-4 space-y-2 text-sm">
+        <div><span class="text-slate-500">CMND:</span> <b>{{ resident[0] }}</b></div>
+        <div><span class="text-slate-500">Họ tên:</span> <b>{{ resident[1] }}</b></div>
+        <div><span class="text-slate-500">Giới tính:</span> <b>{{ resident[2] }}</b></div>
+        <div><span class="text-slate-500">Địa chỉ:</span> <b>{{ resident[3] }}</b></div>
+        <div><span class="text-slate-500">Quận:</span> <b>{{ resident[4] }}</b></div>
+      </div>
+    {% else %}
+      <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        Không thấy RESIDENT_PROFILE (có thể do OLS/VPD chặn theo phạm vi).
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Passport -->
+  <div class="rounded-2xl border bg-white p-5 shadow-sm">
+    <h2 class="font-semibold">Passport (gốc)</h2>
+    {% if passport %}
+      <div class="mt-4 space-y-2 text-sm">
+        <div><span class="text-slate-500">Passport No:</span> <b>{{ passport[0] }}</b></div>
+        <div><span class="text-slate-500">Owner CMND:</span> <b>{{ passport[1] }}</b></div>
+        <div><span class="text-slate-500">Issue date:</span> <b>{{ passport[2] }}</b></div>
+        <div><span class="text-slate-500">Expiry date:</span> <b>{{ passport[3] }}</b></div>
+      </div>
+    {% else %}
+      <div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        Không thấy PASSPORT theo PASSPORT_NO trong đơn.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Quick action -->
+<div class="mt-6 rounded-2xl border bg-white p-5 shadow-sm">
+  <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <div>
+      <div class="font-semibold">XT Kết luận nhanh</div>
+      <div class="text-xs text-slate-500">
+        Nếu thấy sai lệch (đánh dấu đỏ), ghi rõ vào note và FAIL.
+      </div>
+    </div>
+  </div>
+
+  <form method="post" action="/staff/xt/verify" class="mt-4 grid gap-3 md:grid-cols-4">
+    <input type="hidden" name="app_no" value="{{ app[0] }}">
+    <div>
+      <label class="text-sm font-medium">Result</label>
+      <select name="result" class="mt-1 w-full rounded-xl border p-2 outline-none focus:ring-2 focus:ring-indigo-600/20">
+        <option value="PASS">PASS</option>
+        <option value="FAIL">FAIL</option>
+      </select>
+    </div>
+
+    <div class="md:col-span-2">
+      <label class="text-sm font-medium">Note</label>
+      <input name="note" class="mt-1 w-full rounded-xl border p-2 outline-none focus:ring-2 focus:ring-indigo-600/20"
+             placeholder="Ví dụ: Họ tên sai so với resident profile...">
+    </div>
+
+    <div class="flex items-end">
+      <button class="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-white hover:opacity-95">
+        Submit Decision
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

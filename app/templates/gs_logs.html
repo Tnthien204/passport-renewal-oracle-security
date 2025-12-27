@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-2 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">GS Logs</h1>
+    <p class="mt-1 text-sm text-slate-600">Theo dõi audit log trong PROCESS_LOG (mới nhất trước).</p>
+  </div>
+
+  <form method="get" action="/staff/gs" class="flex gap-2">
+    <input name="q" value="{{ q }}" class="rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/20"
+           placeholder="Search by APP_NO...">
+    <button class="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:opacity-95">
+      Search
+    </button>
+  </form>
+</div>
+
+<div class="mt-6 overflow-hidden rounded-2xl border bg-white shadow-sm">
+  <div class="border-b p-4 flex items-center justify-between">
+    <div class="font-semibold">Latest 300 logs</div>
+    <div class="text-xs text-slate-500">Filter: <b class="text-slate-700">{{ q if q else "ALL" }}</b></div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">LOG_AT</th>
+          <th class="px-4 py-3 text-left">APP_NO</th>
+          <th class="px-4 py-3 text-left">STEP</th>
+          <th class="px-4 py-3 text-left">ACTION</th>
+          <th class="px-4 py-3 text-left">ACTOR</th>
+          <th class="px-4 py-3 text-left">NOTE</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y">
+        {% for r in rows %}
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 text-slate-700">{{ r[0] }}</td>
+          <td class="px-4 py-3 font-mono text-xs">{{ r[1] }}</td>
+          <td class="px-4 py-3">{{ r[2] }}</td>
+          <td class="px-4 py-3">{{ r[3] }}</td>
+          <td class="px-4 py-3">{{ r[4] }}</td>
+          <td class="px-4 py-3 text-slate-600">{{ r[5] or "—" }}</td>
+        </tr>
+        {% endfor %}
+        {% if rows|length == 0 %}
+        <tr><td class="px-6 py-10 text-center text-slate-500" colspan="6">Không có log.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

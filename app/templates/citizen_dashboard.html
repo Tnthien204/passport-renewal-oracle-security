@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mt-2 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Citizen Dashboard</h1>
+  </div>
+
+  <a href="/citizen/submit"
+     class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-white hover:opacity-95">
+    + Submit New
+  </a>
+</div>
+
+{# Stats #}
+{% set ns = namespace(sub=0, xt=0, xd=0, comp=0, rej=0) %}
+{% for r in rows %}
+  {% set st = (r[1] or "")|upper %}
+  {% if st == "SUBMITTED" %}{% set ns.sub = ns.sub + 1 %}{% endif %}
+  {% if st == "XT_DONE" %}{% set ns.xt = ns.xt + 1 %}{% endif %}
+  {% if st == "XD_DONE" %}{% set ns.xd = ns.xd + 1 %}{% endif %}
+  {% if st == "COMPLETED" %}{% set ns.comp = ns.comp + 1 %}{% endif %}
+  {% if st == "REJECTED" %}{% set ns.rej = ns.rej + 1 %}{% endif %}
+{% endfor %}
+
+<div class="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+  <div class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="text-xs text-slate-500">SUBMITTED</div>
+    <div class="mt-1 text-2xl font-semibold">{{ ns.sub }}</div>
+  </div>
+  <div class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="text-xs text-slate-500">XT_DONE</div>
+    <div class="mt-1 text-2xl font-semibold">{{ ns.xt }}</div>
+  </div>
+  <div class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="text-xs text-slate-500">XD_DONE</div>
+    <div class="mt-1 text-2xl font-semibold">{{ ns.xd }}</div>
+  </div>
+  <div class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="text-xs text-slate-500">COMPLETED</div>
+    <div class="mt-1 text-2xl font-semibold">{{ ns.comp }}</div>
+  </div>
+  <div class="rounded-2xl border bg-white p-4 shadow-sm">
+    <div class="text-xs text-slate-500">REJECTED</div>
+    <div class="mt-1 text-2xl font-semibold">{{ ns.rej }}</div>
+  </div>
+</div>
+
+<div class="mt-6 overflow-hidden rounded-2xl border bg-white shadow-sm">
+  <div class="flex flex-col gap-2 border-b p-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <div class="font-semibold">Đơn của bạn</div>
+    </div>
+    <div class="text-xs text-slate-500">
+      Total: <b class="text-slate-700">{{ rows|length }}</b>
+    </div>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">APP_NO</th>
+          <th class="px-4 py-3 text-left">STATUS</th>
+          <th class="px-4 py-3 text-left">SUBMITTED_AT</th>
+          <th class="px-4 py-3 text-left">PASSPORT</th>
+          <th class="px-4 py-3 text-left">XT_UNIT</th>
+          <th class="px-4 py-3 text-left">XT</th>
+          <th class="px-4 py-3 text-left">XD</th>
+          <th class="px-4 py-3 text-left">NEW_EXPIRY</th>
+          <th class="px-4 py-3 text-left">ACTIONS</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y">
+        {% for r in rows %}
+        {% set st = (r[1] or "")|upper %}
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 font-mono text-xs">{{ r[0] }}</td>
+          <td class="px-4 py-3">{{ status_badge(r[1]) }}</td>
+          <td class="px-4 py-3 text-slate-700">{{ r[2] }}</td>
+          <td class="px-4 py-3">{{ r[3] }}</td>
+          <td class="px-4 py-3 text-slate-600">{{ r[4] or "—" }}</td>
+          <td class="px-4 py-3">{{ result_badge(r[5]) }}</td>
+          <td class="px-4 py-3">{{ result_badge(r[6]) }}</td>
+          <td class="px-4 py-3 text-slate-700">{{ r[7] or "—" }}</td>
+
+          <td class="px-4 py-3">
+            {% if st in ["COMPLETED","REJECTED"] %}
+              <form method="post" action="/citizen/delete"
+                    onsubmit="return confirm('Bạn có muốn xóa đơn này');"
+                    class="inline">
+                <input type="hidden" name="app_no" value="{{ r[0] }}">
+                <button type="submit"
+                        class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">
+                  DELETE
+                </button>
+              </form>
+            {% else %}
+              <span class="text-xs text-slate-400">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
+        {% if rows|length == 0 %}
+        <tr>
+          <td class="px-6 py-10 text-center text-slate-500" colspan="9">
+            Chưa có hồ sơ. Bấm <b>Submit New</b> để tạo hồ sơ gia hạn.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

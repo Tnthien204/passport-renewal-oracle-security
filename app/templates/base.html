@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <title>{{ title if title else "Passport Renewal" }}</title>
+
+  <style>
+    html { scroll-behavior: smooth; }
+  </style>
+</head>
+
+<body class="min-h-screen bg-slate-50 text-slate-900 antialiased">
+  {% set path = request.url.path %}
+  {% set auth = request.session.get("auth_type") %}
+  {% set role = request.session.get("role") %}
+  {% set db_user = request.session.get("db_user") %}
+  {% set citizen_username = request.session.get("citizen_username") %}
+
+  {# ---------- Macros ---------- #}
+  {% macro chip(text, tone="slate") -%}
+    {% if tone == "green" %}
+      <span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-2.5 py-1 text-xs font-semibold">
+        <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{{ text }}
+      </span>
+    {% elif tone == "red" %}
+      <span class="inline-flex items-center gap-1 rounded-full bg-red-50 text-red-700 ring-1 ring-red-200 px-2.5 py-1 text-xs font-semibold">
+        <span class="inline-block h-1.5 w-1.5 rounded-full bg-red-500"></span>{{ text }}
+      </span>
+    {% elif tone == "amber" %}
+      <span class="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 ring-1 ring-amber-200 px-2.5 py-1 text-xs font-semibold">
+        <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-500"></span>{{ text }}
+      </span>
+    {% elif tone == "indigo" %}
+      <span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 px-2.5 py-1 text-xs font-semibold">
+        <span class="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500"></span>{{ text }}
+      </span>
+    {% else %}
+      <span class="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-700 ring-1 ring-slate-200 px-2.5 py-1 text-xs font-semibold">
+        <span class="inline-block h-1.5 w-1.5 rounded-full bg-slate-400"></span>{{ text }}
+      </span>
+    {% endif %}
+  {%- endmacro %}
+
+  {% macro status_badge(status) -%}
+    {% set s = (status or "")|upper %}
+    {% if s in ["COMPLETED"] %}
+      {{ chip(s, "green") }}
+    {% elif s in ["REJECTED"] %}
+      {{ chip(s, "red") }}
+    {% elif s in ["XT_DONE", "XD_DONE"] %}
+      {{ chip(s, "indigo") }}
+    {% elif s in ["SUBMITTED"] %}
+      {{ chip(s, "amber") }}
+    {% else %}
+      {{ chip(s if s else "UNKNOWN", "slate") }}
+    {% endif %}
+  {%- endmacro %}
+
+  {% macro result_badge(val) -%}
+    {% set v = (val or "")|upper %}
+    {% if v in ["PASS", "APPROVE"] %}
+      {{ chip(v, "green") }}
+    {% elif v in ["FAIL", "REJECT"] %}
+      {{ chip(v, "red") }}
+    {% elif v %}
+      {{ chip(v, "slate") }}
+    {% else %}
+      <span class="text-slate-400 text-xs">—</span>
+    {% endif %}
+  {%- endmacro %}
+
+  {# ---------- Top Nav ---------- #}
+  <header class="sticky top-0 z-50 border-b border-slate-200/70 bg-white/75 backdrop-blur-xl">
+    <div class="mx-auto max-w-6xl px-4">
+      <div class="flex h-16 items-center justify-between">
+        <a href="/" class="group flex items-center gap-3">
+          <div class="relative">
+            <div class="h-10 w-10 rounded-2xl bg-slate-900 text-white grid place-items-center font-black tracking-tight shadow-sm">
+              PR
+            </div>
+            <div class="pointer-events-none absolute -bottom-2 -right-2 h-5 w-5 rounded-full bg-emerald-500 ring-4 ring-white"></div>
+          </div>
+          <div class="leading-tight">
+            <div class="font-semibold tracking-tight text-slate-900 group-hover:text-slate-700 transition">
+              Passport Renewal
+            </div>
+            <div class="text-xs text-slate-500">
+              Oracle VPD • OLS • Database Vault Realm
+            </div>
+          </div>
+        </a>
+
+        <!-- Desktop nav -->
+        <nav class="hidden md:flex items-center gap-2 text-sm">
+          <a href="/"
+             class="px-3 py-2 rounded-xl hover:bg-slate-100 transition {{ 'bg-slate-100 font-semibold' if path=='/' else '' }}">
+            Home
+          </a>
+
+          {% if auth %}
+            <a href="/citizen"
+               class="px-3 py-2 rounded-xl hover:bg-slate-100 transition {{ 'bg-slate-100 font-semibold' if path.startswith('/citizen') else '' }}">
+              Citizen
+            </a>
+
+            {# ✅ ADMIN có menu riêng, tránh click /staff rồi bị chặn bởi GS #}
+            {% if role == "ADMIN" %}
+              <a href="/admin"
+                 class="px-3 py-2 rounded-xl hover:bg-slate-100 transition {{ 'bg-slate-100 font-semibold' if path.startswith('/admin') else '' }}">
+                Admin
+              </a>
+            {% else %}
+              <a href="/staff"
+                 class="px-3 py-2 rounded-xl hover:bg-slate-100 transition {{ 'bg-slate-100 font-semibold' if path.startswith('/staff') else '' }}">
+                Staff
+              </a>
+            {% endif %}
+          {% else %}
+            <a href="/login?tab=citizen"
+               class="px-3 py-2 rounded-xl hover:bg-slate-100 transition {{ 'bg-slate-100 font-semibold' if path.startswith('/login') and request.query_params.get('tab')=='citizen' else '' }}">
+              Citizen
+            </a>
+            <a href="/login?tab=staff"
+               class="px-3 py-2 rounded-xl hover:bg-slate-100 transition {{ 'bg-slate-100 font-semibold' if path.startswith('/login') and request.query_params.get('tab')=='staff' else '' }}">
+              Staff
+            </a>
+          {% endif %}
+
+          <div class="mx-1 h-6 w-px bg-slate-200"></div>
+
+          {% if auth %}
+            <a href="/logout"
+               class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-white shadow-sm hover:opacity-95 transition">
+              Logout
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-white/70"></span>
+            </a>
+          {% else %}
+            <a href="/login"
+               class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-white shadow-sm hover:opacity-95 transition">
+              Login
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-white/70"></span>
+            </a>
+          {% endif %}
+        </nav>
+
+        <!-- Mobile button -->
+        <button id="mBtn"
+                class="md:hidden inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50 shadow-sm transition">
+          <span class="mr-2 inline-block h-2 w-2 rounded-full bg-slate-900"></span>
+          Menu
+        </button>
+      </div>
+
+      <!-- Mobile menu -->
+      <div id="mMenu" class="md:hidden hidden pb-4">
+        <div class="grid gap-2 text-sm">
+          <a href="/" class="px-3 py-2 rounded-xl hover:bg-slate-100 transition">Home</a>
+
+          {% if auth %}
+            <a href="/citizen" class="px-3 py-2 rounded-xl hover:bg-slate-100 transition">Citizen</a>
+
+            {% if role == "ADMIN" %}
+              <a href="/admin" class="px-3 py-2 rounded-xl hover:bg-slate-100 transition">Admin</a>
+            {% else %}
+              <a href="/staff" class="px-3 py-2 rounded-xl hover:bg-slate-100 transition">Staff</a>
+            {% endif %}
+          {% else %}
+            <a href="/login?tab=citizen" class="px-3 py-2 rounded-xl hover:bg-slate-100 transition">Citizen</a>
+            <a href="/login?tab=staff" class="px-3 py-2 rounded-xl hover:bg-slate-100 transition">Staff</a>
+          {% endif %}
+
+          {% if auth %}
+            <a href="/logout" class="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-95 transition">Logout</a>
+          {% else %}
+            <a href="/login" class="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-95 transition">Login</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  {# ---------- Hero / Page Header ---------- #}
+  <div class="relative">
+    <div class="absolute inset-0 -z-10">
+      <div class="h-40 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
+      <div class="mx-auto max-w-6xl px-4">
+        <div class="-mt-10 h-20 rounded-3xl bg-white/10 backdrop-blur border border-white/10"></div>
+      </div>
+    </div>
+
+    <div class="mx-auto max-w-6xl px-4 pt-6">
+      <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div class="text-white">
+          <div class="text-xs uppercase tracking-widest text-white/70">Dashboard</div>
+
+          {% if auth == "citizen" %}
+            <h1 class="mt-1 text-2xl md:text-3xl font-bold tracking-tight">Citizen Portal</h1>
+            <div class="mt-1 text-sm text-white/70">Theo dõi hồ sơ • Trạng thái XT → XD → LT</div>
+          {% elif auth == "staff" and role == "ADMIN" %}
+            <h1 class="mt-1 text-2xl md:text-3xl font-bold tracking-tight">Admin Console</h1>
+            <div class="mt-1 text-sm text-white/70">Quản trị dữ liệu Resident/Passport • OLS/VPD enforced</div>
+          {% elif auth == "staff" %}
+            <h1 class="mt-1 text-2xl md:text-3xl font-bold tracking-tight">Staff Console</h1>
+            <div class="mt-1 text-sm text-white/70">Xử lý nghiệp vụ theo role • VPD/OLS enforced</div>
+          {% else %}
+            <h1 class="mt-1 text-2xl md:text-3xl font-bold tracking-tight">Passport Renewal</h1>
+            <div class="mt-1 text-sm text-white/70">Đăng nhập để nộp hồ sơ hoặc xử lý nghiệp vụ</div>
+          {% endif %}
+        </div>
+
+        <div class="flex items-center gap-2">
+          <div class="hidden md:flex items-center gap-2 rounded-2xl bg-white/10 border border-white/10 px-3 py-2 text-white/80 text-xs">
+            <span class="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>
+            Secure DB layer: VPD • OLS • Realm
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# ---------- Context + Flash ---------- #}
+    <div class="mx-auto max-w-6xl px-4 pt-5">
+      <!-- Context card (FULL WIDTH) -->
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div class="p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              {% if auth == "citizen" %}
+                <div class="text-xs text-slate-500">Session</div>
+                <div class="mt-1 text-lg font-semibold tracking-tight">Đăng nhập: Citizen</div>
+                <div class="mt-1 text-sm text-slate-600">
+                  Username: <b class="text-slate-900">{{ citizen_username }}</b>
+                  <span class="mx-2 text-slate-300">•</span>
+                  CMND: <b class="text-slate-900">{{ request.session.get("citizen_cmnd") }}</b>
+                </div>
+              {% elif auth == "staff" %}
+                <div class="text-xs text-slate-500">Session</div>
+                <div class="mt-1 text-lg font-semibold tracking-tight">
+                  Đăng nhập: {{ "Admin" if role == "ADMIN" else "Staff" }}
+                </div>
+                <div class="mt-1 text-sm text-slate-600">
+                  DB User: <b class="text-slate-900">{{ db_user }}</b>
+                  <span class="mx-2 text-slate-300">•</span>
+                  Role: <b class="text-slate-900">{{ role }}</b>
+                </div>
+              {% else %}
+                <div class="text-xs text-slate-500">Session</div>
+                <div class="mt-1 text-lg font-semibold tracking-tight">Chưa đăng nhập</div>
+                <div class="mt-1 text-sm text-slate-600">
+                  Vui lòng đăng nhập để thao tác.
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="flex flex-col items-end gap-2">
+              {% if auth == "citizen" %}
+                {{ chip("CITIZEN", "indigo") }}
+              {% elif auth == "staff" and role == "ADMIN" %}
+                {{ chip("ADMIN", "amber") }}
+              {% elif auth == "staff" %}
+                {{ chip("STAFF", "amber") }}
+              {% else %}
+                {{ chip("GUEST", "slate") }}
+              {% endif %}
+              <div class="text-xs text-slate-500">UI • Tailwind CDN</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {% set ok_msg = (ok if ok is defined else request.query_params.get('ok')) %}
+      {% set err_msg = (err if err is defined else request.query_params.get('err')) %}
+
+      {% if ok_msg %}
+        <div class="mt-4 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-800 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="font-semibold text-emerald-900">Thành công</div>
+              <div class="text-sm mt-1 text-emerald-800">{{ ok_msg }}</div>
+            </div>
+            <div class="h-10 w-10 rounded-2xl bg-emerald-600 text-white grid place-items-center font-black">✓</div>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if err_msg %}
+        <div class="mt-4 rounded-3xl border border-red-200 bg-red-50 p-5 text-red-700 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="font-semibold text-red-900">Có lỗi</div>
+              <div class="text-sm mt-1 text-red-700">{{ err_msg }}</div>
+            </div>
+            <div class="h-10 w-10 rounded-2xl bg-red-600 text-white grid place-items-center font-black">!</div>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <main class="mx-auto max-w-6xl px-4 py-6 pb-14">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="mx-auto max-w-6xl px-4 pb-10 text-xs text-slate-500">
+    <div class="border-t pt-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <div>
+        Passport Renewal • Demo UI (Tailwind CDN) • Oracle VPD/OLS/Realm enforced by DB
+      </div>
+      <div class="text-slate-400">
+        © {{ 2025 }} • Internal Demo
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    const btn = document.getElementById('mBtn');
+    const menu = document.getElementById('mMenu');
+    if (btn && menu) {
+      btn.addEventListener('click', () => menu.classList.toggle('hidden'));
+    }
+  </script>
+</body>
+</html>

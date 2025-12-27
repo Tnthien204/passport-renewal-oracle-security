@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mx-auto mt-2 max-w-lg rounded-2xl border bg-white p-6 shadow-sm">
+  <h1 class="text-2xl font-bold tracking-tight">Citizen Register</h1>
+  <p class="mt-1 text-sm text-slate-600">
+    Tạo tài khoản người dân (gọi <b>ADMIN.PROC_CREATE_ACCOUNT</b>).
+  </p>
+
+  <form method="post" action="/register" class="mt-6 space-y-4">
+    <div>
+      <label class="text-sm font-medium">Username</label>
+      <input name="username" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20" placeholder="email/phone" required>
+    </div>
+
+    <div>
+      <label class="text-sm font-medium">Password</label>
+      <input name="password" type="password" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20" placeholder="••••••••" required>
+    </div>
+
+    <div>
+      <label class="text-sm font-medium">CMND</label>
+      <input name="cmnd" class="mt-1 w-full rounded-xl border p-3 outline-none focus:ring-2 focus:ring-slate-900/20" placeholder="Phải tồn tại trong RESIDENT_PROFILE" required>
+      <div class="mt-1 text-xs text-slate-500">Nếu CMND không có trong RESIDENT_PROFILE sẽ báo lỗi ORA-02291.</div>
+    </div>
+
+    <button class="w-full rounded-xl bg-slate-900 p-3 text-white hover:opacity-95">
+      Create account
+    </button>
+  </form>
+
+  <div class="mt-4 text-sm">
+    <a class="font-medium text-indigo-600 hover:underline" href="/login">← Quay lại đăng nhập</a>
+  </div>
+</div>
+{% endblock %}

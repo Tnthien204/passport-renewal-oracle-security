@@ -1,0 +1,1082 @@
+/* ============================================================
+   A) RUN AS SYS
+   - Create users
+   - Grant required packages
+   - Create Database Vault realm + add participants
+   - Set ADMIN as REALM OWNER
+   ============================================================ */
+
+-- A0) (Optional) Cho SYSTEM dùng DBMS_REDACT nếu cần
+GRANT EXECUTE ON DBMS_REDACT TO SYSTEM;
+
+---------------------------------------------------------------
+-- A1) Create schema owner ADMIN
+---------------------------------------------------------------
+CREATE USER ADMIN IDENTIFIED BY nhuthien;
+GRANT CREATE SESSION, CONNECT, RESOURCE TO ADMIN;
+GRANT UNLIMITED TABLESPACE TO ADMIN;
+
+GRANT DBA TO ADMIN;
+GRANT LBAC_DBA TO ADMIN;
+
+GRANT EXECUTE ON DBMS_REDACT  TO ADMIN;
+GRANT EXECUTE ON DBMS_CRYPTO  TO ADMIN;
+
+---------------------------------------------------------------
+-- A2) Create application user (backend web)
+---------------------------------------------------------------
+CREATE USER ONLINE_APP IDENTIFIED BY nhuthien;
+GRANT CREATE SESSION, CONNECT TO ONLINE_APP;
+
+---------------------------------------------------------------
+-- A3) Create business users XT_Q1..XT_Q12
+---------------------------------------------------------------
+CREATE USER XT_Q1  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q2  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q3  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q4  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q5  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q6  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q7  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q8  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q9  IDENTIFIED BY nhuthien;
+CREATE USER XT_Q10 IDENTIFIED BY nhuthien;
+CREATE USER XT_Q11 IDENTIFIED BY nhuthien;
+CREATE USER XT_Q12 IDENTIFIED BY nhuthien;
+
+GRANT CREATE SESSION, CONNECT TO XT_Q1;
+GRANT CREATE SESSION, CONNECT TO XT_Q2;
+GRANT CREATE SESSION, CONNECT TO XT_Q3;
+GRANT CREATE SESSION, CONNECT TO XT_Q4;
+GRANT CREATE SESSION, CONNECT TO XT_Q5;
+GRANT CREATE SESSION, CONNECT TO XT_Q6;
+GRANT CREATE SESSION, CONNECT TO XT_Q7;
+GRANT CREATE SESSION, CONNECT TO XT_Q8;
+GRANT CREATE SESSION, CONNECT TO XT_Q9;
+GRANT CREATE SESSION, CONNECT TO XT_Q10;
+GRANT CREATE SESSION, CONNECT TO XT_Q11;
+GRANT CREATE SESSION, CONNECT TO XT_Q12;
+
+---------------------------------------------------------------
+-- A4) Create other business users
+---------------------------------------------------------------
+CREATE USER XD_USER IDENTIFIED BY nhuthien;
+CREATE USER LT_USER IDENTIFIED BY nhuthien;
+CREATE USER GS_USER IDENTIFIED BY nhuthien;
+
+GRANT CREATE SESSION, CONNECT TO XD_USER;
+GRANT CREATE SESSION, CONNECT TO LT_USER;
+GRANT CREATE SESSION, CONNECT TO GS_USER;
+
+---------------------------------------------------------------
+-- A5) Grant OLS admin packages to ADMIN (để ADMIN tạo policy/label)
+---------------------------------------------------------------
+GRANT EXECUTE ON LBACSYS.SA_SYSDBA       TO ADMIN;
+GRANT EXECUTE ON LBACSYS.SA_COMPONENTS   TO ADMIN;
+GRANT EXECUTE ON LBACSYS.SA_LABEL_ADMIN  TO ADMIN;
+GRANT EXECUTE ON LBACSYS.SA_UTL          TO ADMIN;
+GRANT EXECUTE ON LBACSYS.SA_USER_ADMIN   TO ADMIN;
+GRANT EXECUTE ON LBACSYS.SA_POLICY_ADMIN TO ADMIN;
+
+---------------------------------------------------------------
+-- A6) Database Vault Realm
+---------------------------------------------------------------
+BEGIN
+  DBMS_MACADM.CREATE_REALM(
+    realm_name  => 'RESIDENT_PASSPORT_APP_REALM',
+    description => 'Protect passport renewal application objects'
+  );
+END;
+/
+
+-- Add participants (tối thiểu: ADMIN + ONLINE_APP + nghiệp vụ)
+BEGIN
+  DBMS_MACADM.ADD_AUTH_TO_REALM(
+    realm_name    => 'RESIDENT_PASSPORT_APP_REALM',
+    grantee       => 'ONLINE_APP',
+    rule_set_name => NULL,
+    auth_options  => DBMS_MACADM.G_REALM_AUTH_PARTICIPANT
+  );
+
+  DBMS_MACADM.ADD_AUTH_TO_REALM(
+    realm_name    => 'RESIDENT_PASSPORT_APP_REALM',
+    grantee       => 'XD_USER',
+    rule_set_name => NULL,
+    auth_options  => DBMS_MACADM.G_REALM_AUTH_PARTICIPANT
+  );
+
+  DBMS_MACADM.ADD_AUTH_TO_REALM(
+    realm_name    => 'RESIDENT_PASSPORT_APP_REALM',
+    grantee       => 'LT_USER',
+    rule_set_name => NULL,
+    auth_options  => DBMS_MACADM.G_REALM_AUTH_PARTICIPANT
+  );
+
+  DBMS_MACADM.ADD_AUTH_TO_REALM(
+    realm_name    => 'RESIDENT_PASSPORT_APP_REALM',
+    grantee       => 'GS_USER',
+    rule_set_name => NULL,
+    auth_options  => DBMS_MACADM.G_REALM_AUTH_PARTICIPANT
+  );
+END;
+/
+BEGIN
+  FOR i IN 1..12 LOOP
+    DBMS_MACADM.ADD_AUTH_TO_REALM(
+      realm_name    => 'RESIDENT_PASSPORT_APP_REALM',
+      grantee       => 'XT_Q' || i,
+      rule_set_name => NULL,
+      auth_options  => DBMS_MACADM.G_REALM_AUTH_PARTICIPANT
+    );
+  END LOOP;
+END;
+/
+
+-- Set ADMIN as REALM OWNER 
+BEGIN
+  DBMS_MACADM.ADD_AUTH_TO_REALM(
+    realm_name    => 'RESIDENT_PASSPORT_APP_REALM',
+    grantee       => 'ADMIN',
+    rule_set_name => NULL,
+    auth_options  => DBMS_MACADM.G_REALM_AUTH_OWNER
+  );
+END;
+/
+
+/* ============================================================
+   B) RUN AS ADMIN
+   - Create tables
+   - Add objects to DV realm
+   - Create roles
+   - OLS policy RES_POL:
+       + Level: PUBLIC(P) and RESTRICTED(R)
+       + Compartments: XT/XD/LT/GS
+       + Groups: ALL, Q1..Q12
+       + Apply to RESIDENT_PROFILE + PASSPORT_RENEWAL_APP
+       + Triggers auto-label rows
+   - App context APP_CTX (CMND)
+   - VPD for PASSPORT_RENEWAL_APP (filter by user + IS_DELETED)
+   - Views for LT (no PII)
+   - Procedures for submit/verify/decide/complete/log/soft delete
+   ============================================================ */
+
+---------------------------------------------------------------
+-- B1) Tables
+---------------------------------------------------------------
+
+CREATE TABLE ADMIN.RESIDENT_PROFILE (
+  CMND              VARCHAR2(20)  NOT NULL,
+  FULL_NAME         VARCHAR2(120) NOT NULL,
+  GENDER            VARCHAR2(10)  NOT NULL,
+  PERMANENT_ADDRESS VARCHAR2(250) NOT NULL,
+  DISTRICT_CODE     VARCHAR2(10)  NOT NULL,
+  CONSTRAINT PK_RESIDENT_PROFILE PRIMARY KEY (CMND),
+  CONSTRAINT CK_RESIDENT_GENDER CHECK (GENDER IN ('M','F','O'))
+);
+
+CREATE TABLE ADMIN.PASSPORT (
+  PASSPORT_NO   VARCHAR2(20) NOT NULL,
+  OWNER_CMND    VARCHAR2(20) NOT NULL,
+  ISSUE_DATE    DATE         NOT NULL,
+  EXPIRY_DATE   DATE         NOT NULL,
+  CONSTRAINT PK_PASSPORT PRIMARY KEY (PASSPORT_NO),
+  CONSTRAINT FK_PASSPORT_OWNER FOREIGN KEY (OWNER_CMND)
+    REFERENCES ADMIN.RESIDENT_PROFILE (CMND)
+);
+
+CREATE TABLE ADMIN.ONLINE_ACCOUNT (
+  USERNAME       VARCHAR2(120) NOT NULL,
+  PASSWORD_HASH  VARCHAR2(255) NOT NULL,
+  CMND           VARCHAR2(20)  NOT NULL,
+  CREATED_AT     TIMESTAMP     DEFAULT SYSTIMESTAMP NOT NULL,
+  IS_ACTIVE      CHAR(1)       DEFAULT 'Y' NOT NULL,
+  SALT           VARCHAR2(32),
+  HASH_ALG       VARCHAR2(20)  DEFAULT 'SHA256' NOT NULL,
+  CONSTRAINT PK_ONLINE_ACCOUNT PRIMARY KEY (USERNAME),
+  CONSTRAINT FK_ACC_CMND FOREIGN KEY (CMND)
+    REFERENCES ADMIN.RESIDENT_PROFILE (CMND),
+  CONSTRAINT CK_ACC_ACTIVE CHECK (IS_ACTIVE IN ('Y','N'))
+);
+
+CREATE TABLE ADMIN.PASSPORT_RENEWAL_APP (
+  APP_NO             VARCHAR2(36)  NOT NULL,
+  SUBMITTER_USERNAME VARCHAR2(120) NOT NULL,
+
+  FULL_NAME          VARCHAR2(120) NOT NULL,
+  PERMANENT_ADDRESS  VARCHAR2(250) NOT NULL,
+  GENDER             VARCHAR2(10)  NOT NULL,
+  CMND               VARCHAR2(20)  NOT NULL,
+  PHONE              VARCHAR2(20),
+  EMAIL              VARCHAR2(120),
+  PASSPORT_NO         VARCHAR2(20) NOT NULL,
+
+  SUBMITTED_AT       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+  STATUS             VARCHAR2(30) NOT NULL,
+
+  XT_UNIT            VARCHAR2(20),
+  XT_RESULT          VARCHAR2(10),
+  XT_AT              TIMESTAMP,
+  XT_NOTE            VARCHAR2(2000),
+
+  XD_DECISION        VARCHAR2(10),
+  XD_AT              TIMESTAMP,
+  XD_NOTE            VARCHAR2(2000),
+
+  NEW_EXPIRY_DATE    DATE,
+
+  -- soft delete
+  IS_DELETED         CHAR(1) DEFAULT 'N' NOT NULL,
+  DELETED_AT         TIMESTAMP,
+  DELETED_BY         VARCHAR2(50),
+
+  CONSTRAINT PK_RENEWAL_APP PRIMARY KEY (APP_NO),
+  CONSTRAINT FK_APP_SUBMITTER FOREIGN KEY (SUBMITTER_USERNAME)
+    REFERENCES ADMIN.ONLINE_ACCOUNT (USERNAME),
+  CONSTRAINT FK_APP_PASSPORT FOREIGN KEY (PASSPORT_NO)
+    REFERENCES ADMIN.PASSPORT (PASSPORT_NO),
+
+  CONSTRAINT CK_APP_GENDER CHECK (GENDER IN ('M','F','O')),
+  CONSTRAINT CK_APP_STATUS CHECK (
+    STATUS IN ('SUBMITTED','XT_DONE','XD_DONE','COMPLETED','REJECTED')
+  ),
+  CONSTRAINT CK_XT_RESULT CHECK (XT_RESULT IS NULL OR XT_RESULT IN ('PASS','FAIL')),
+  CONSTRAINT CK_XD_DECISION CHECK (XD_DECISION IS NULL OR XD_DECISION IN ('APPROVE','REJECT')),
+  CONSTRAINT CK_APP_IS_DELETED CHECK (IS_DELETED IN ('Y','N'))
+);
+
+CREATE TABLE ADMIN.PROCESS_LOG (
+  LOG_NO    VARCHAR2(36) NOT NULL,
+  APP_NO    VARCHAR2(36) NOT NULL,
+  LOG_AT    TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+  STEP_NAME VARCHAR2(20) NOT NULL,  -- SUBMIT/XT/XD/LT/GS
+  ACTION    VARCHAR2(30) NOT NULL,  -- CREATE/VERIFY/DECIDE/UPDATE_EXPIRY/...
+  ACTOR     VARCHAR2(50),
+  NOTE      VARCHAR2(2000),
+
+  CONSTRAINT PK_PROCESS_LOG PRIMARY KEY (LOG_NO),
+  CONSTRAINT FK_LOG_APP FOREIGN KEY (APP_NO)
+    REFERENCES ADMIN.PASSPORT_RENEWAL_APP (APP_NO),
+
+  CONSTRAINT CK_LOG_STEP CHECK (STEP_NAME IN ('SUBMIT','XT','XD','LT','GS')),
+  CONSTRAINT CK_LOG_ACTION CHECK (ACTION IN (
+    'CREATE','VERIFY','DECIDE','UPDATE_EXPIRY','CHANGE_STATUS',
+    'SELECT','INSERT','UPDATE','DELETE','DDL'
+  ))
+);
+
+---------------------------------------------------------------
+-- B2) Add objects to Database Vault realm
+---------------------------------------------------------------
+BEGIN
+  DBMS_MACADM.ADD_OBJECT_TO_REALM('RESIDENT_PASSPORT_APP_REALM','ADMIN','RESIDENT_PROFILE','TABLE');
+  DBMS_MACADM.ADD_OBJECT_TO_REALM('RESIDENT_PASSPORT_APP_REALM','ADMIN','PASSPORT','TABLE');
+  DBMS_MACADM.ADD_OBJECT_TO_REALM('RESIDENT_PASSPORT_APP_REALM','ADMIN','ONLINE_ACCOUNT','TABLE');
+  DBMS_MACADM.ADD_OBJECT_TO_REALM('RESIDENT_PASSPORT_APP_REALM','ADMIN','PASSPORT_RENEWAL_APP','TABLE');
+  DBMS_MACADM.ADD_OBJECT_TO_REALM('RESIDENT_PASSPORT_APP_REALM','ADMIN','PROCESS_LOG','TABLE');
+END;
+/
+
+---------------------------------------------------------------
+-- B3) Roles
+---------------------------------------------------------------
+CREATE ROLE ROLE_USER;
+CREATE ROLE ROLE_XT;
+CREATE ROLE ROLE_XD;
+CREATE ROLE ROLE_LT;
+CREATE ROLE ROLE_GS;
+
+---------------------------------------------------------------
+-- B4) OLS policy RES_POL
+---------------------------------------------------------------
+
+-- Create policy (OLS_LABEL column auto-managed by OLS)
+BEGIN
+  SA_SYSDBA.CREATE_POLICY(
+    policy_name => 'RES_POL',
+    column_name => 'OLS_LABEL'
+  );
+END;
+/
+
+GRANT RES_POL_DBA TO ADMIN;
+
+-- Levels
+BEGIN
+  SA_COMPONENTS.CREATE_LEVEL('RES_POL', 50,  'P', 'PUBLIC');
+  SA_COMPONENTS.CREATE_LEVEL('RES_POL', 100, 'R', 'RESTRICTED');
+END;
+/
+
+-- Compartments (stage)
+BEGIN
+  SA_COMPONENTS.CREATE_COMPARTMENT('RES_POL', 10, 'XT', 'XAC_THUC');
+  SA_COMPONENTS.CREATE_COMPARTMENT('RES_POL', 20, 'XD', 'XET_DUYET');
+  SA_COMPONENTS.CREATE_COMPARTMENT('RES_POL', 30, 'LT', 'LUU_TRU');
+  SA_COMPONENTS.CREATE_COMPARTMENT('RES_POL', 40, 'GS', 'GIAM_SAT');
+END;
+/
+
+-- Groups (district)
+BEGIN
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 1000, 'ALL', 'ALL_DISTRICTS', NULL);
+
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 101, 'Q1',  'QUAN_1',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 102, 'Q2',  'QUAN_2',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 103, 'Q3',  'QUAN_3',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 104, 'Q4',  'QUAN_4',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 105, 'Q5',  'QUAN_5',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 106, 'Q6',  'QUAN_6',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 107, 'Q7',  'QUAN_7',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 108, 'Q8',  'QUAN_8',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 109, 'Q9',  'QUAN_9',  'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 110, 'Q10', 'QUAN_10', 'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 111, 'Q11', 'QUAN_11', 'ALL');
+  SA_COMPONENTS.CREATE_GROUP('RES_POL', 112, 'Q12', 'QUAN_12', 'ALL');
+END;
+/
+
+-- Labels (PUBLIC for app insert; RESTRICTED for stages)
+BEGIN
+  -- PUBLIC label (to avoid OLS blocking inserts; VPD handles scope)
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 9001,  'P::ALL');
+
+  -- XT stage by district
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31011, 'R:XT:Q1');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31021, 'R:XT:Q2');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31031, 'R:XT:Q3');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31041, 'R:XT:Q4');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31051, 'R:XT:Q5');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31061, 'R:XT:Q6');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31071, 'R:XT:Q7');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31081, 'R:XT:Q8');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31091, 'R:XT:Q9');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31101, 'R:XT:Q10');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31111, 'R:XT:Q11');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 31121, 'R:XT:Q12');
+
+  -- XD/LT/GS stages
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 32001, 'R:XD:ALL');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 33001, 'R:LT:ALL');
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 34001, 'R:GS:ALL');
+
+  -- ADMIN clearance
+  SA_LABEL_ADMIN.CREATE_LABEL('RES_POL', 39999, 'R:XT,XD,LT,GS:ALL');
+END;
+/
+
+-- Apply OLS to tables
+BEGIN
+  SA_POLICY_ADMIN.APPLY_TABLE_POLICY('RES_POL','ADMIN','RESIDENT_PROFILE',     'READ_CONTROL');
+  SA_POLICY_ADMIN.APPLY_TABLE_POLICY('RES_POL','ADMIN','PASSPORT_RENEWAL_APP', 'READ_CONTROL');
+END;
+/
+
+-- User label setup
+BEGIN
+  -- ADMIN full clearance
+  SA_USER_ADMIN.SET_USER_LABELS(
+    policy_name     => 'RES_POL',
+    user_name       => 'ADMIN',
+    max_read_label  => 'R:XT,XD,LT,GS:ALL',
+    max_write_label => 'R:XT,XD,LT,GS:ALL',
+    min_write_label => 'P',
+    def_label       => 'R:XT,XD,LT,GS:ALL',
+    row_label       => 'R:XT,XD,LT,GS:ALL'
+  );
+  LBACSYS.SA_USER_ADMIN.SET_USER_PRIVS('RES_POL','ADMIN','FULL');
+
+  -- ONLINE_APP: insert/see controlled by VPD; OLS clearance rộng để không chặn
+  SA_USER_ADMIN.SET_USER_LABELS(
+    policy_name    => 'RES_POL',
+    user_name      => 'ONLINE_APP',
+    max_read_label => 'R:XT,XD,LT,GS:ALL',
+    def_label      => 'P::ALL',
+    row_label      => 'P::ALL'
+  );
+  LBACSYS.SA_USER_ADMIN.SET_USER_PRIVS('RES_POL','ONLINE_APP','READ');
+
+  -- XT users: only their district + XT compartment
+  FOR i IN 1..12 LOOP
+    SA_USER_ADMIN.SET_USER_LABELS(
+      policy_name    => 'RES_POL',
+      user_name      => 'XT_Q' || i,
+      max_read_label => 'R:XT:Q' || i,
+      def_label      => 'R:XT:Q' || i,
+      row_label      => 'R:XT:Q' || i
+    );
+    LBACSYS.SA_USER_ADMIN.SET_USER_PRIVS('RES_POL','XT_Q'||i,'READ');
+  END LOOP;
+
+  -- XD/LT/GS
+  SA_USER_ADMIN.SET_USER_LABELS('RES_POL','XD_USER', max_read_label=>'R:XD:ALL', def_label=>'R:XD:ALL', row_label=>'R:XD:ALL');
+  SA_USER_ADMIN.SET_USER_LABELS('RES_POL','LT_USER', max_read_label=>'R:LT:ALL', def_label=>'R:LT:ALL', row_label=>'R:LT:ALL');
+  SA_USER_ADMIN.SET_USER_LABELS('RES_POL','GS_USER', max_read_label=>'R:GS:ALL', def_label=>'R:GS:ALL', row_label=>'R:GS:ALL');
+
+  LBACSYS.SA_USER_ADMIN.SET_USER_PRIVS('RES_POL','XD_USER','READ');
+  LBACSYS.SA_USER_ADMIN.SET_USER_PRIVS('RES_POL','LT_USER','READ');
+  LBACSYS.SA_USER_ADMIN.SET_USER_PRIVS('RES_POL','GS_USER','READ');
+END;
+/
+
+-- Trigger auto-label RESIDENT_PROFILE by district
+CREATE OR REPLACE TRIGGER ADMIN.TRG_RESIDENT_SET_OLS
+BEFORE INSERT OR UPDATE OF DISTRICT_CODE ON ADMIN.RESIDENT_PROFILE
+FOR EACH ROW
+BEGIN
+  :NEW.OLS_LABEL :=
+    CASE UPPER(:NEW.DISTRICT_CODE)
+      WHEN 'Q1'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q1')
+      WHEN 'Q2'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q2')
+      WHEN 'Q3'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q3')
+      WHEN 'Q4'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q4')
+      WHEN 'Q5'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q5')
+      WHEN 'Q6'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q6')
+      WHEN 'Q7'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q7')
+      WHEN 'Q8'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q8')
+      WHEN 'Q9'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q9')
+      WHEN 'Q10' THEN CHAR_TO_LABEL('RES_POL','R:XT:Q10')
+      WHEN 'Q11' THEN CHAR_TO_LABEL('RES_POL','R:XT:Q11')
+      WHEN 'Q12' THEN CHAR_TO_LABEL('RES_POL','R:XT:Q12')
+      ELSE CHAR_TO_LABEL('RES_POL','R:XT:ALL')
+    END;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_RESIDENT_SET_OLS ENABLE;
+
+---------------------------------------------------------------
+-- B5) Business roles + grants (chỉ SELECT; DML đi qua procedure)
+---------------------------------------------------------------
+
+-- USER (citizen/backend): view app by VPD + read log
+GRANT SELECT ON ADMIN.PASSPORT_RENEWAL_APP TO ROLE_USER;
+GRANT SELECT ON ADMIN.PROCESS_LOG         TO ROLE_USER;
+
+-- XT: read queues + resident/passport lookup
+GRANT SELECT ON ADMIN.PASSPORT_RENEWAL_APP TO ROLE_XT;
+GRANT SELECT ON ADMIN.RESIDENT_PROFILE     TO ROLE_XT;
+GRANT SELECT ON ADMIN.PASSPORT             TO ROLE_XT;
+
+-- XD: read apps (VPD)
+GRANT SELECT ON ADMIN.PASSPORT_RENEWAL_APP TO ROLE_XD;
+
+-- LT: will use view (no PII) + update passport expiry via procedure
+-- GS: read log + can view apps via proc
+GRANT SELECT ON ADMIN.PROCESS_LOG TO ROLE_GS;
+
+-- Attach roles
+GRANT ROLE_USER TO ONLINE_APP;
+
+GRANT ROLE_XT TO XT_Q1;
+GRANT ROLE_XT TO XT_Q2;
+GRANT ROLE_XT TO XT_Q3;
+GRANT ROLE_XT TO XT_Q4;
+GRANT ROLE_XT TO XT_Q5;
+GRANT ROLE_XT TO XT_Q6;
+GRANT ROLE_XT TO XT_Q7;
+GRANT ROLE_XT TO XT_Q8;
+GRANT ROLE_XT TO XT_Q9;
+GRANT ROLE_XT TO XT_Q10;
+GRANT ROLE_XT TO XT_Q11;
+GRANT ROLE_XT TO XT_Q12;
+
+GRANT ROLE_XD TO XD_USER;
+GRANT ROLE_LT TO LT_USER;
+GRANT ROLE_GS TO GS_USER;
+
+---------------------------------------------------------------
+-- B6) Hash login helpers
+---------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION ADMIN.FN_SHA256_HEX(p_text IN VARCHAR2)
+RETURN VARCHAR2
+IS
+  v_raw   RAW(32767);
+  v_hash  RAW(32);
+BEGIN
+  v_raw  := UTL_I18N.STRING_TO_RAW(p_text, 'AL32UTF8');
+  v_hash := DBMS_CRYPTO.HASH(v_raw, DBMS_CRYPTO.HASH_SH256);
+  RETURN LOWER(RAWTOHEX(v_hash));
+END;
+/
+
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_CREATE_ACCOUNT(
+  p_username IN VARCHAR2,
+  p_password IN VARCHAR2,
+  p_cmnd     IN VARCHAR2
+)
+IS
+  v_salt VARCHAR2(32);
+  v_hash VARCHAR2(255);
+BEGIN
+  v_salt := LOWER(RAWTOHEX(DBMS_CRYPTO.RANDOMBYTES(16)));
+  v_hash := ADMIN.FN_SHA256_HEX(v_salt || ':' || p_password);
+
+  INSERT INTO ADMIN.ONLINE_ACCOUNT(
+    USERNAME, PASSWORD_HASH, SALT, CMND, IS_ACTIVE
+  ) VALUES (
+    p_username, v_hash, v_salt, p_cmnd, 'Y'
+  );
+END;
+/
+
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_AUTH_USER(
+  p_username IN  VARCHAR2,
+  p_password IN  VARCHAR2,
+  p_ok       OUT CHAR,
+  p_cmnd     OUT VARCHAR2
+)
+IS
+  v_hash_db   VARCHAR2(255);
+  v_salt      VARCHAR2(32);
+  v_active    CHAR(1);
+  v_hash_in   VARCHAR2(255);
+BEGIN
+  p_ok := 'N';
+  p_cmnd := NULL;
+
+  SELECT PASSWORD_HASH, SALT, IS_ACTIVE, CMND
+    INTO v_hash_db, v_salt, v_active, p_cmnd
+    FROM ADMIN.ONLINE_ACCOUNT
+   WHERE USERNAME = p_username;
+
+  IF v_active <> 'Y' THEN
+    p_ok := 'N';
+    p_cmnd := NULL;
+    RETURN;
+  END IF;
+
+  v_hash_in := ADMIN.FN_SHA256_HEX(v_salt || ':' || p_password);
+
+  IF v_hash_in = v_hash_db THEN
+    p_ok := 'Y';
+  ELSE
+    p_ok := 'N';
+    p_cmnd := NULL;
+  END IF;
+
+EXCEPTION
+  WHEN NO_DATA_FOUND THEN
+    p_ok := 'N';
+    p_cmnd := NULL;
+END;
+/
+
+---------------------------------------------------------------
+-- B7) App Context APP_CTX (CMND) for ONLINE_APP
+---------------------------------------------------------------
+CREATE OR REPLACE PACKAGE ADMIN.PKG_APP_CTX AS
+  PROCEDURE SET_CMND(p_cmnd IN VARCHAR2);
+END;
+/
+
+CREATE OR REPLACE PACKAGE BODY ADMIN.PKG_APP_CTX AS
+  PROCEDURE SET_CMND(p_cmnd IN VARCHAR2) IS
+  BEGIN
+    DBMS_SESSION.SET_CONTEXT('APP_CTX', 'CMND', p_cmnd);
+  END;
+END;
+/
+
+CREATE OR REPLACE CONTEXT APP_CTX USING ADMIN.PKG_APP_CTX;
+/
+
+GRANT EXECUTE ON ADMIN.PKG_APP_CTX TO ONLINE_APP;
+
+---------------------------------------------------------------
+-- B8) VPD for PASSPORT_RENEWAL_APP (with IS_DELETED)
+---------------------------------------------------------------
+CREATE OR REPLACE FUNCTION ADMIN.FN_VPD_RENEWAL_APP (
+  p_schema VARCHAR2,
+  p_object VARCHAR2
+) RETURN VARCHAR2
+IS
+  v_user VARCHAR2(30);
+  v_cmnd VARCHAR2(20);
+BEGIN
+  v_user := SYS_CONTEXT('USERENV','SESSION_USER');
+
+  -- ADMIN / GS: all (including soft-deleted)
+  IF v_user IN ('ADMIN','GS_USER') THEN
+    RETURN '1=1';
+  END IF;
+
+  -- Citizen/backend: by CMND context + not deleted
+  IF v_user = 'ONLINE_APP' THEN
+    v_cmnd := SYS_CONTEXT('APP_CTX','CMND');
+    IF v_cmnd IS NOT NULL THEN
+      RETURN 'CMND = '''||v_cmnd||''' AND IS_DELETED = ''N''';
+    ELSE
+      RETURN '1=0';
+    END IF;
+  END IF;
+
+  -- XT: only waiting SUBMITTED + not deleted
+  IF v_user LIKE 'XT_Q%' THEN
+    RETURN 'XT_UNIT = '''||v_user||''' AND STATUS=''SUBMITTED'' AND IS_DELETED=''N''';
+  END IF;
+
+  -- XD: only XT_DONE + not deleted
+  IF v_user = 'XD_USER' THEN
+    RETURN 'STATUS=''XT_DONE'' AND IS_DELETED=''N''';
+  END IF;
+
+  -- LT: only XD_DONE + not deleted
+  IF v_user = 'LT_USER' THEN
+    RETURN 'STATUS=''XD_DONE'' AND IS_DELETED=''N''';
+  END IF;
+
+  RETURN '1=0';
+END;
+/
+
+BEGIN
+  DBMS_RLS.ADD_POLICY(
+    object_schema   => 'ADMIN',
+    object_name     => 'PASSPORT_RENEWAL_APP',
+    policy_name     => 'VPD_RENEWAL_APP_SEL',
+    function_schema => 'ADMIN',
+    policy_function => 'FN_VPD_RENEWAL_APP',
+    statement_types => 'SELECT',
+    update_check    => FALSE,
+    enable          => TRUE
+  );
+
+  DBMS_RLS.ADD_POLICY(
+    object_schema   => 'ADMIN',
+    object_name     => 'PASSPORT_RENEWAL_APP',
+    policy_name     => 'VPD_RENEWAL_APP_UPD',
+    function_schema => 'ADMIN',
+    policy_function => 'FN_VPD_RENEWAL_APP',
+    statement_types => 'UPDATE',
+    update_check    => FALSE,
+    enable          => TRUE
+  );
+
+  DBMS_RLS.ADD_POLICY(
+    object_schema   => 'ADMIN',
+    object_name     => 'PASSPORT_RENEWAL_APP',
+    policy_name     => 'VPD_RENEWAL_APP_DEL',
+    function_schema => 'ADMIN',
+    policy_function => 'FN_VPD_RENEWAL_APP',
+    statement_types => 'DELETE',
+    update_check    => FALSE,
+    enable          => TRUE
+  );
+END;
+/
+
+---------------------------------------------------------------
+-- B9) Views for LT (no PII)
+---------------------------------------------------------------
+CREATE OR REPLACE VIEW ADMIN.VW_LT_RENEWAL_APP AS
+SELECT
+  APP_NO, PASSPORT_NO, SUBMITTED_AT, STATUS,
+  XT_UNIT, XT_RESULT, XT_AT,
+  XD_DECISION, XD_AT,
+  NEW_EXPIRY_DATE
+FROM ADMIN.PASSPORT_RENEWAL_APP;
+
+CREATE OR REPLACE VIEW ADMIN.VW_LT_PASSPORT AS
+SELECT
+  PASSPORT_NO, ISSUE_DATE, EXPIRY_DATE
+FROM ADMIN.PASSPORT;
+
+GRANT SELECT ON ADMIN.VW_LT_RENEWAL_APP TO ROLE_LT;
+GRANT SELECT ON ADMIN.VW_LT_PASSPORT    TO ROLE_LT;
+
+---------------------------------------------------------------
+-- B10) Workflow triggers (status + data integrity)
+---------------------------------------------------------------
+
+-- auto XT_UNIT + force citizen STATUS=SUBMITTED
+CREATE OR REPLACE TRIGGER ADMIN.TRG_APP_ENFORCE_SUBMIT
+BEFORE INSERT OR UPDATE OF CMND ON ADMIN.PASSPORT_RENEWAL_APP
+FOR EACH ROW
+DECLARE
+  v_district ADMIN.RESIDENT_PROFILE.DISTRICT_CODE%TYPE;
+  v_user     VARCHAR2(30);
+BEGIN
+  v_user := SYS_CONTEXT('USERENV','SESSION_USER');
+
+  IF INSERTING OR :NEW.XT_UNIT IS NULL OR (UPDATING('CMND') AND NVL(:NEW.CMND,'#') <> NVL(:OLD.CMND,'#')) THEN
+    BEGIN
+      SELECT DISTRICT_CODE
+        INTO v_district
+        FROM ADMIN.RESIDENT_PROFILE
+       WHERE CMND = :NEW.CMND;
+
+      :NEW.XT_UNIT := 'XT_' || UPPER(v_district); -- Q1 -> XT_Q1
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        :NEW.XT_UNIT := NULL;
+        IF INSERTING AND v_user = 'ONLINE_APP' THEN
+          RAISE_APPLICATION_ERROR(-20001, 'CMND not found in RESIDENT_PROFILE');
+        END IF;
+    END;
+  END IF;
+
+  IF INSERTING AND v_user = 'ONLINE_APP' THEN
+    :NEW.STATUS := 'SUBMITTED';
+  END IF;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_APP_ENFORCE_SUBMIT ENABLE;
+
+-- passport owner must match CMND
+CREATE OR REPLACE TRIGGER ADMIN.TRG_APP_CHECK_PASSPORT_OWNER
+BEFORE INSERT OR UPDATE OF CMND, PASSPORT_NO ON ADMIN.PASSPORT_RENEWAL_APP
+FOR EACH ROW
+DECLARE
+  v_owner_cmnd ADMIN.PASSPORT.OWNER_CMND%TYPE;
+BEGIN
+  SELECT OWNER_CMND
+    INTO v_owner_cmnd
+    FROM ADMIN.PASSPORT
+   WHERE PASSPORT_NO = :NEW.PASSPORT_NO;
+
+  IF v_owner_cmnd <> :NEW.CMND THEN
+    RAISE_APPLICATION_ERROR(-20002,'Passport owner mismatch');
+  END IF;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_APP_CHECK_PASSPORT_OWNER ENABLE;
+
+-- XT update => set XT_AT + status
+CREATE OR REPLACE TRIGGER ADMIN.TRG_APP_XT_STATUS
+BEFORE UPDATE OF XT_RESULT, XT_NOTE ON ADMIN.PASSPORT_RENEWAL_APP
+FOR EACH ROW
+DECLARE
+  v_user VARCHAR2(30);
+BEGIN
+  v_user := SYS_CONTEXT('USERENV','SESSION_USER');
+
+  IF v_user LIKE 'XT\_Q%' ESCAPE '\' THEN
+    :NEW.XT_AT := SYSTIMESTAMP;
+
+    IF :NEW.XT_RESULT = 'PASS' THEN
+      :NEW.STATUS := 'XT_DONE';
+    ELSIF :NEW.XT_RESULT = 'FAIL' THEN
+      :NEW.STATUS := 'REJECTED';
+    ELSE
+      RAISE_APPLICATION_ERROR(-20011,'XT_RESULT must be PASS/FAIL');
+    END IF;
+  END IF;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_APP_XT_STATUS ENABLE;
+
+-- XD update => set XD_AT + status
+CREATE OR REPLACE TRIGGER ADMIN.TRG_APP_XD_STATUS
+BEFORE UPDATE OF XD_DECISION, XD_NOTE ON ADMIN.PASSPORT_RENEWAL_APP
+FOR EACH ROW
+DECLARE
+  v_user VARCHAR2(30);
+BEGIN
+  v_user := SYS_CONTEXT('USERENV','SESSION_USER');
+
+  IF v_user = 'XD_USER' THEN
+    :NEW.XD_AT := SYSTIMESTAMP;
+
+    IF :NEW.XD_DECISION = 'APPROVE' THEN
+      :NEW.STATUS := 'XD_DONE';
+    ELSIF :NEW.XD_DECISION = 'REJECT' THEN
+      :NEW.STATUS := 'REJECTED';
+    ELSE
+      RAISE_APPLICATION_ERROR(-20012,'XD_DECISION must be APPROVE/REJECT');
+    END IF;
+  END IF;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_APP_XD_STATUS ENABLE;
+
+-- LT update => status completed
+CREATE OR REPLACE TRIGGER ADMIN.TRG_APP_LT_STATUS
+BEFORE UPDATE OF NEW_EXPIRY_DATE ON ADMIN.PASSPORT_RENEWAL_APP
+FOR EACH ROW
+DECLARE
+  v_user VARCHAR2(30);
+BEGIN
+  v_user := SYS_CONTEXT('USERENV','SESSION_USER');
+  IF v_user = 'LT_USER' THEN
+    :NEW.STATUS := 'COMPLETED';
+  END IF;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_APP_LT_STATUS ENABLE;
+
+---------------------------------------------------------------
+-- B11) OLS label stage trigger for PASSPORT_RENEWAL_APP
+---------------------------------------------------------------
+CREATE OR REPLACE TRIGGER ADMIN.TRG_APP_SET_OLS_STAGE
+BEFORE INSERT OR UPDATE ON ADMIN.PASSPORT_RENEWAL_APP
+FOR EACH ROW
+DECLARE
+  v_district ADMIN.RESIDENT_PROFILE.DISTRICT_CODE%TYPE;
+  v_q VARCHAR2(10);
+BEGIN
+  IF :NEW.XT_UNIT IS NOT NULL THEN
+    v_q := REPLACE(UPPER(:NEW.XT_UNIT), 'XT_', ''); -- XT_Q1 -> Q1
+  ELSE
+    BEGIN
+      SELECT DISTRICT_CODE INTO v_district
+      FROM ADMIN.RESIDENT_PROFILE
+      WHERE CMND = :NEW.CMND;
+      v_q := UPPER(v_district);
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        v_q := 'ALL';
+    END;
+  END IF;
+
+  IF INSERTING THEN
+    :NEW.OLS_LABEL :=
+      CASE v_q
+        WHEN 'Q1'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q1')
+        WHEN 'Q2'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q2')
+        WHEN 'Q3'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q3')
+        WHEN 'Q4'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q4')
+        WHEN 'Q5'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q5')
+        WHEN 'Q6'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q6')
+        WHEN 'Q7'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q7')
+        WHEN 'Q8'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q8')
+        WHEN 'Q9'  THEN CHAR_TO_LABEL('RES_POL','R:XT:Q9')
+        WHEN 'Q10' THEN CHAR_TO_LABEL('RES_POL','R:XT:Q10')
+        WHEN 'Q11' THEN CHAR_TO_LABEL('RES_POL','R:XT:Q11')
+        WHEN 'Q12' THEN CHAR_TO_LABEL('RES_POL','R:XT:Q12')
+        ELSE CHAR_TO_LABEL('RES_POL','R:XT:ALL')
+      END;
+
+  ELSIF UPDATING('XT_RESULT') OR UPDATING('XT_NOTE') THEN
+    :NEW.OLS_LABEL := CHAR_TO_LABEL('RES_POL','R:XD:ALL');
+
+  ELSIF UPDATING('XD_DECISION') OR UPDATING('XD_NOTE') THEN
+    :NEW.OLS_LABEL := CHAR_TO_LABEL('RES_POL','R:LT:ALL');
+
+  ELSIF UPDATING('NEW_EXPIRY_DATE') THEN
+    :NEW.OLS_LABEL := CHAR_TO_LABEL('RES_POL','R:GS:ALL');
+
+  ELSE
+    :NEW.OLS_LABEL := NVL(:NEW.OLS_LABEL, :OLD.OLS_LABEL);
+  END IF;
+END;
+/
+ALTER TRIGGER ADMIN.TRG_APP_SET_OLS_STAGE ENABLE;
+
+---------------------------------------------------------------
+-- B12) Logging (PROC_WRITE_LOG + GS view)
+---------------------------------------------------------------
+
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_WRITE_LOG(
+  p_app_no    IN VARCHAR2,
+  p_step_name IN VARCHAR2,
+  p_action    IN VARCHAR2,
+  p_note      IN VARCHAR2
+)
+IS
+  v_actor   VARCHAR2(200);
+  v_subject VARCHAR2(800);
+  v_cmnd    VARCHAR2(20);
+  v_name    VARCHAR2(120);
+  v_pass    VARCHAR2(20);
+  v_subm    VARCHAR2(120);
+BEGIN
+  v_actor := NVL(SYS_CONTEXT('USERENV','CLIENT_IDENTIFIER'),
+                 SYS_CONTEXT('USERENV','SESSION_USER'));
+
+  v_subject := NULL;
+
+  IF p_app_no IS NOT NULL THEN
+    BEGIN
+      SELECT CMND, FULL_NAME, PASSPORT_NO, SUBMITTER_USERNAME
+        INTO v_cmnd, v_name, v_pass, v_subm
+        FROM ADMIN.PASSPORT_RENEWAL_APP
+       WHERE APP_NO = p_app_no;
+
+      v_subject :=
+        ' | SUBMITTER='||NVL(v_subm,'?')||
+        ' | CMND='||NVL(v_cmnd,'?')||
+        ' | NAME='||NVL(v_name,'?')||
+        ' | PASSPORT='||NVL(v_pass,'?');
+    EXCEPTION
+      WHEN NO_DATA_FOUND THEN
+        v_subject := ' | APP_NO='||p_app_no;
+    END;
+  END IF;
+
+  INSERT INTO ADMIN.PROCESS_LOG(
+    LOG_NO, APP_NO, LOG_AT, STEP_NAME, ACTION, ACTOR, NOTE
+  ) VALUES (
+    LOWER(REGEXP_REPLACE(RAWTOHEX(SYS_GUID()),
+      '(.{8})(.{4})(.{4})(.{4})(.{12})','\1-\2-\3-\4-\5')),
+    p_app_no,
+    SYSTIMESTAMP,
+    p_step_name,
+    p_action,
+    SUBSTR(v_actor,1,50),
+    SUBSTR(NVL(p_note,'') || NVL(v_subject,''), 1, 2000)
+  );
+END;
+/
+
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_GS_VIEW_APP(
+  p_app_no IN VARCHAR2,
+  o_rc     OUT SYS_REFCURSOR
+)
+AS
+BEGIN
+  ADMIN.PROC_WRITE_LOG(p_app_no, 'GS', 'SELECT', 'GS view application');
+
+  OPEN o_rc FOR
+    SELECT *
+    FROM ADMIN.PASSPORT_RENEWAL_APP
+    WHERE APP_NO = p_app_no;
+END;
+/
+GRANT EXECUTE ON ADMIN.PROC_GS_VIEW_APP TO ROLE_GS;
+
+---------------------------------------------------------------
+-- B13) Switch DML access -> procedures (final secure model)
+---------------------------------------------------------------
+
+-- revoke direct DML (keep SELECT via roles)
+REVOKE INSERT, UPDATE, DELETE ON ADMIN.PASSPORT_RENEWAL_APP FROM ROLE_USER;
+REVOKE UPDATE ON ADMIN.PASSPORT_RENEWAL_APP FROM ROLE_XT;
+REVOKE UPDATE ON ADMIN.PASSPORT_RENEWAL_APP FROM ROLE_XD;
+REVOKE UPDATE ON ADMIN.PASSPORT_RENEWAL_APP FROM ROLE_LT;
+
+-- Submit
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_SUBMIT_APP(
+  p_app_no             IN VARCHAR2,
+  p_submitter_username IN VARCHAR2,
+  p_full_name          IN VARCHAR2,
+  p_address            IN VARCHAR2,
+  p_gender             IN VARCHAR2,
+  p_cmnd               IN VARCHAR2,
+  p_phone              IN VARCHAR2,
+  p_email              IN VARCHAR2,
+  p_passport_no        IN VARCHAR2
+)
+AS
+BEGIN
+  INSERT INTO ADMIN.PASSPORT_RENEWAL_APP(
+    APP_NO, SUBMITTER_USERNAME, FULL_NAME, PERMANENT_ADDRESS,
+    GENDER, CMND, PHONE, EMAIL, PASSPORT_NO, STATUS
+  ) VALUES (
+    p_app_no, p_submitter_username, p_full_name, p_address,
+    p_gender, p_cmnd, p_phone, p_email, p_passport_no, 'SUBMITTED'
+  );
+
+  ADMIN.PROC_WRITE_LOG(p_app_no, 'SUBMIT', 'CREATE', 'Citizen submit renewal application');
+END;
+/
+GRANT EXECUTE ON ADMIN.PROC_SUBMIT_APP TO ROLE_USER;
+
+-- XT verify
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_XT_VERIFY(
+  p_app_no  IN VARCHAR2,
+  p_result  IN VARCHAR2,
+  p_note    IN VARCHAR2
+)
+AS
+BEGIN
+  UPDATE ADMIN.PASSPORT_RENEWAL_APP
+     SET XT_RESULT = p_result,
+         XT_NOTE   = p_note
+   WHERE APP_NO = p_app_no
+     AND STATUS = 'SUBMITTED';
+
+  ADMIN.PROC_WRITE_LOG(
+    p_app_no, 'XT', 'VERIFY',
+    'XT verify result='||p_result||' | '||SUBSTR(NVL(p_note,''),1,200)
+  );
+END;
+/
+GRANT EXECUTE ON ADMIN.PROC_XT_VERIFY TO ROLE_XT;
+
+-- XD decide
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_XD_DECIDE(
+  p_app_no    IN VARCHAR2,
+  p_decision  IN VARCHAR2,
+  p_note      IN VARCHAR2
+)
+AS
+BEGIN
+  UPDATE ADMIN.PASSPORT_RENEWAL_APP
+     SET XD_DECISION = p_decision,
+         XD_NOTE     = p_note
+   WHERE APP_NO = p_app_no
+     AND STATUS = 'XT_DONE'
+     AND XT_RESULT = 'PASS';
+
+  ADMIN.PROC_WRITE_LOG(
+    p_app_no, 'XD', 'DECIDE',
+    'XD decision='||p_decision||' | '||SUBSTR(NVL(p_note,''),1,200)
+  );
+END;
+/
+GRANT EXECUTE ON ADMIN.PROC_XD_DECIDE TO ROLE_XD;
+
+-- LT complete (update expiry + set new_expiry_date)
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_LT_COMPLETE(
+  p_app_no   IN VARCHAR2,
+  p_new_exp  IN DATE
+)
+AS
+  v_passport_no ADMIN.PASSPORT_RENEWAL_APP.PASSPORT_NO%TYPE;
+BEGIN
+  SELECT PASSPORT_NO
+    INTO v_passport_no
+    FROM ADMIN.PASSPORT_RENEWAL_APP
+   WHERE APP_NO = p_app_no
+     AND XD_DECISION = 'APPROVE';
+
+  UPDATE ADMIN.PASSPORT
+     SET EXPIRY_DATE = p_new_exp
+   WHERE PASSPORT_NO = v_passport_no;
+
+  UPDATE ADMIN.PASSPORT_RENEWAL_APP
+     SET NEW_EXPIRY_DATE = p_new_exp
+   WHERE APP_NO = p_app_no;
+
+  ADMIN.PROC_WRITE_LOG(
+    p_app_no, 'LT', 'UPDATE_EXPIRY',
+    'LT update expiry_date='||TO_CHAR(p_new_exp,'YYYY-MM-DD')
+  );
+END;
+/
+GRANT EXECUTE ON ADMIN.PROC_LT_COMPLETE TO ROLE_LT;
+
+-- Citizen soft delete
+CREATE OR REPLACE PROCEDURE ADMIN.PROC_CITIZEN_SOFT_DELETE(
+  p_app_no IN VARCHAR2
+)
+AS
+  v_status     ADMIN.PASSPORT_RENEWAL_APP.STATUS%TYPE;
+  v_is_deleted ADMIN.PASSPORT_RENEWAL_APP.IS_DELETED%TYPE;
+BEGIN
+  SELECT STATUS, IS_DELETED
+    INTO v_status, v_is_deleted
+    FROM ADMIN.PASSPORT_RENEWAL_APP
+   WHERE APP_NO = p_app_no;
+
+  IF v_is_deleted = 'Y' THEN
+    RAISE_APPLICATION_ERROR(-20061, 'Already deleted');
+  END IF;
+
+  IF v_status NOT IN ('COMPLETED','REJECTED') THEN
+    RAISE_APPLICATION_ERROR(-20062, 'Can delete only COMPLETED/REJECTED');
+  END IF;
+
+  UPDATE ADMIN.PASSPORT_RENEWAL_APP
+     SET IS_DELETED = 'Y',
+         DELETED_AT = SYSTIMESTAMP,
+         DELETED_BY = SYS_CONTEXT('APP_CTX','CMND')
+   WHERE APP_NO = p_app_no;
+
+  ADMIN.PROC_WRITE_LOG(p_app_no, 'SUBMIT', 'DELETE', 'Citizen soft delete');
+END;
+/
+GRANT EXECUTE ON ADMIN.PROC_CITIZEN_SOFT_DELETE TO ROLE_USER;
+
+COMMIT;
+
